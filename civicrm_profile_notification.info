@@ -1,0 +1,7 @@
+; $Id$
+name = CiviCRM profile notification
+description = Provides notification to people who signs up via civicrm profile form
+package = CiviCRM
+core = 6.x
+version = "6.x-1.0"
+dependencies[] = civicrm

@@ -1,0 +1,179 @@
+<?php
+function civicrm_profile_notification_menu() {
+
+	$items['admin/settings/civicrm_profile_notification'] = array(
+		'title' => 'Profile Notification Configuration',
+		'access arguments' => array('administer site configuration'),
+		'page callback' => 'drupal_get_form',
+		'page arguments' => array('civicrm_profile_notification_configuration'),
+		'type' => MENU_NORMAL_ITEM,
+	);
+	
+	return $items;
+}
+
+/*
+ * Implementation of hook_mail
+ */
+function civicrm_profile_notification_mail($key, &$message, $params) {
+
+	$message['headers']['Content-type'] = 'text/html';
+
+	$template_id = variable_get('civicrm_profile_notification_template', 0);
+	
+	$template_body = db_result(db_query("SELECT msg_html FROM civicrm_msg_template WHERE id = %d", $template_id));
+	($template_body == '') ? $template_body = '{content}' : $template_body;
+	
+	$message['from'] = variable_get('site_mail', 'info@example.com');
+	$message['subject'] = $params['subject'];
+	
+	if($content = stristr($template_body, '{content}')) {
+		$body = str_replace('{content}', $params['message'], $template_body);
+	} else {
+		$body = $params['message'];
+	}
+	
+	$message['body'] = $body;
+}
+
+
+/*
+ * Implementation of hook_civicrm_post
+ */
+function civicrm_profile_notification_civicrm_postProcess($formName, &$form) {
+	// we are only looking for CiviCRM Profile Form
+	if($formName == 'CRM_Profile_Form_Edit') {
+		// Let's get the list of profile form that has enabled email notification to the sign up person
+		$gids = variable_get('civicrm_profile_notification_toggles', array());
+		// grab the gid from the current form
+		$form_gid = $form->getVar( '_gid' );
+		// only with profile form that has the notification toggle on
+		if($gids[$form_gid] == 1) {
+			$contact_id = $form->getVar('_id');
+			$subjects = variable_get('civicrm_profile_notification_subjects', array());
+			$messages = variable_get('civicrm_profile_notification_msgs', array());
+			if(isset($subjects[$form_gid]) && isset($messages[$form_gid])) {
+				$email = db_result(db_query("SELECT email FROM civicrm_email WHERE contact_id = %d", $contact_id));
+				if($email != '' && valid_email_address($email)) {
+					// drupal mail will be fired here
+					$params['subject'] = $subjects[$form_gid];
+					$params['message'] = $messages[$form_gid];
+					drupal_mail('civicrm_profile_notification', 'signup', $email, language_default(), $params, NULL, TRUE);	
+				}
+			}
+		}	
+	}
+}
+
+// main form
+function civicrm_profile_notification_configuration(&$form_state) {
+	
+	// load some default values
+	$subjects = variable_get('civicrm_profile_notification_subjects', array());
+	$messages = variable_get('civicrm_profile_notification_msgs', array());
+	$toggles = variable_get('civicrm_profile_notification_toggles', array());
+	
+	// Default message for sign-up
+	// $form['default_message'] = array(
+		// '#type' => 'textarea',
+		// '#title' => 'Default Notification Message',
+		// '#description' => t('Default message to the supporter who signs up'),
+		// '#default_value' => variable_get('civicrm_profile_notification_default_msg', 'Dear supporter: thank you for sign up'),
+	// );
+	
+	// template to use
+	$form['template'] = array(
+		'#type' => 'select',
+		'#title' => 'email template to use',
+		'#options' => _civicrm_profile_notification_fetch_civi_templates(),
+		'#default_value' => variable_get('civicrm_profile_notification_template', ''),
+	);
+	
+	// For each of the profile form
+	// use CiviCRM DAO
+	if($profiles = _civicrm_profile_notification_fetch_profiles()) {
+		foreach($profiles as $id => $title) {
+			$form['profile_' . $id] = array(
+				'#type' => 'fieldset',
+				'#title' => $title,
+				'#collapsible' => TRUE,
+				'#collapsed' => TRUE,
+			);
+
+			$form['profile_' . $id]['profile_' . $id . '_subject'] = array(
+				'#type' => 'textfield',
+				'#title' => 'Subject for the form sign-up notification',
+				'#default_value' => (isset($subjects[$id])) ? $subjects[$id] : '',
+			);
+			
+			$form['profile_' . $id]['profile_' . $id . '_message'] = array(
+				'#type' => 'textarea',
+				'#title' => 'Message for the form sign-up notification',
+				'#default_value' => (isset($messages[$id])) ? $messages[$id] : variable_get('civicrm_profile_notification_default_msg', 'Dear supporter: thank you for sign up'),
+			);
+
+			$form['profile_' . $id]['profile_' . $id . '_toggle'] = array(
+				'#type' => 'checkbox',
+				'#title' => 'Enable email notification for this profile?',
+				'#default_value' => (isset($toggles[$id])) ? $toggles[$id] : 0,
+			);		
+		}
+	}
+	
+	$form['submit'] = array(
+		'#type' => 'submit',
+		'#value' => t('Save Configurations'),
+	);
+	
+	
+	return $form;
+}
+
+function civicrm_profile_notification_configuration_submit($form, &$form_state) {
+	// variable_set('civicrm_profile_notification_default_msg', filter_xss($form_state['values']['default_message']));
+	variable_set('civicrm_profile_notification_template', $form_state['values']['template']);
+	
+	if($profiles = _civicrm_profile_notification_fetch_profiles()) {
+		foreach($profiles as $id => $title) {
+			$subjects[$id] = filter_xss($form_state['values']['profile_' . $id . '_subject']);
+			$messages[$id] = _filter_autop(filter_xss($form_state['values']['profile_' . $id . '_message']));
+			$toggles[$id] = $form_state['values']['profile_' . $id . '_toggle'];
+		}
+	}
+	
+	variable_set('civicrm_profile_notification_subjects', $subjects);
+	variable_set('civicrm_profile_notification_msgs', $messages);
+	variable_set('civicrm_profile_notification_toggles', $toggles);
+	
+	drupal_set_message('Configuration has been saved');
+	
+}
+
+function _civicrm_profile_notification_fetch_civi_templates() {
+	$data = array();
+	if(module_exists('civicrm')) {
+		// civicrm_initialize();
+		// require_once('CRM/Core/DAO.php');
+		
+		// need to use CiviCRM DAO
+		$query = db_query("SELECT id, msg_title FROM civicrm_msg_template WHERE is_active = 1 AND workflow_id is NULL");
+		
+		$i = 0;
+		while($result = db_fetch_object($query)) {
+			$data[$result->id] = t($result->msg_title);
+		}
+	}
+	return $data;
+}
+
+function _civicrm_profile_notification_fetch_profiles() {
+	$data = array();
+	if(module_exists('civicrm')) {
+		$query = db_query("SELECT id, title FROM civicrm_uf_group WHERE group_type LIKE '%%Individual%%'");
+		while($result = db_fetch_object($query)) {
+			$data[$result->id] = $result->title;
+		}
+	}
+	
+	return $data;
+}
