@@ -89,8 +89,7 @@ This module requires the following:
  * 5. Future Consideration
  ************************************************************/
  
-	1. Use CiviCRM DAO for database query
-	2. Merge this into CiviCRM Core
+	1. Merge this into CiviCRM Core
 	
 	If you have other ideas and suggestions, please contact at chang@emotivellc.com
 	and feel free to contribute to the code
@@ -98,5 +97,6 @@ This module requires the following:
 /*************************************************************
  * 6. Change log
  ************************************************************/
- 
+
+1.0.1 Added CiviCRM Native DAO for query 
 1.0 Working Version: 2/8/2011
