@@ -4,4 +4,5 @@ description = Provides notification to people who signs up via civicrm profile f
 package = CiviCRM
 core = 6.x
 version = "6.x-1.0"
+project = "uprising_civicrm_profile_notification"
 dependencies[] = civicrm
